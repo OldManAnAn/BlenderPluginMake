@@ -1,0 +1,55 @@
+import bpy
+
+def get_type_prefix(obj):
+    type_map = {
+        'MESH': 'Mesh',
+        'LIGHT': 'Light',
+        'CAMERA': 'Camera',
+        'EMPTY': 'Empty',
+        'ARMATURE': 'Armature',
+        'CURVE': 'Curve',
+        'FONT': 'Text',
+        'SURFACE': 'Surface',
+        'META': 'Meta',
+        'VOLUME': 'Volume',
+        'GPENCIL': 'GreasePencil',
+        'LATTICE': 'Lattice',
+        'SPEAKER': 'Speaker'
+    }
+    return type_map.get(obj.type, 'Object')
+
+# 获取选中的空物体（作为父级）
+parent_empties = [obj for obj in bpy.context.selected_objects if obj.type == 'EMPTY']
+
+if not parent_empties:
+    print("⚠️ 请先选中至少一个空物体（Empty）作为父级")
+else:
+    renamed_count = 0
+
+    for parent in parent_empties:
+        children = list(parent.children_recursive)
+        if not children:
+            continue
+
+        # 按类型分组
+        type_groups = {}
+        for child in children:
+            t = child.type
+            if t not in type_groups:
+                type_groups[t] = []
+            type_groups[t].append(child)
+
+        # 重命名每组
+        for obj_type, obj_list in type_groups.items():
+            type_name = get_type_prefix(obj_list[0])
+            for i, obj in enumerate(obj_list, 1):
+                new_name = f"{parent.name}_{type_name}_{i:03d}"
+                obj.name = new_name
+
+                # 🔑 关键：如果是 Mesh，同步重命名网格数据
+                if obj.type == 'MESH' and obj.data:
+                    obj.data.name = new_name  # 同步 mesh data 名称
+
+                renamed_count += 1
+
+    print(f"✅ 成功重命名 {renamed_count} 个子物体（Mesh 数据已同步）")

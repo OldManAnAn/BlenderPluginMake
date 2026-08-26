@@ -1,0 +1,20 @@
+{
+    "python.analysis.extraPaths": [
+        "D:/blender/fake_bpy_modules_4.4",
+        "D:/blender/fake_bpy_modules_4.4/mathutils-stubs",
+        "D:/blender/fake_bpy_modules_4.4/bpy-stubs",
+    ],
+    "python.analysis.typeCheckingMode": "basic",
+    "python.languageServer": "Pylance",
+    "python.defaultInterpreterPath": "D:/blender/4.4/python/bin/python.exe",
+
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportAttributeAccessIssue": "none",
+        "reportOptionalMemberAccess": "none",
+        "reportUnknownMemberType": "none",
+        "reportMissingModuleSource": "none",
+    },
+
+
+}
