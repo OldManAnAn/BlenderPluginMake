@@ -1,13 +1,16 @@
-# batch_tools_for_scene.py
+﻿# batch_tools_for_scene.py
 # 批量场景处理工具集 —— 可安装的 Blender 插件
 
 import bpy
+import bmesh
+import os
+import shutil
 from mathutils import Matrix, Vector
 import re
 
 bl_info = {
-    "name": "Batch Scene Tools",
-    "author": "Your Name",
+    "name": "Hanan Batch Tools",
+    "author": "Hanan",
     "version": (1, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Sidebar > Batch Tools",
@@ -81,6 +84,22 @@ class OBJECT_OT_delete_empties(bpy.types.Operator):
 # ────────────────────────────────
 # 操作类：按父级重命名子物体
 # ────────────────────────────────
+
+class OBJECT_OT_replace_dots_in_names(bpy.types.Operator):
+    bl_idname = "object.replace_dots_in_names"
+    bl_label = "物体名称 . 替换为 _"
+    bl_description = "将所有物体名称中的英文句点替换为下划线"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        renamed = 0
+        for obj in bpy.data.objects:
+            if '.' in obj.name:
+                obj.name = obj.name.replace('.', '_')
+                renamed += 1
+        self.report({'INFO'}, f"已重命名 {renamed} 个物体")
+        return {'FINISHED'}
+
 
 class OBJECT_OT_rename_object_data_to_object_name(bpy.types.Operator):
     bl_idname = "object.rename_object_data_to_object_name"
@@ -233,9 +252,72 @@ class OBJECT_OT_align_corner_to_xy0(bpy.types.Operator):
 
 
 # ────────────────────────────────
+# 操作类：原点到选中顶点
+# ────────────────────────────────
+class OBJECT_OT_origin_to_selected_vertices(bpy.types.Operator):
+    bl_idname = 'object.origin_to_selected_vertices'
+    bl_label = '原点到选中顶点'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH' and context.edit_object is not None
+
+    def execute(self, context):
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        verts = [v for v in bm.verts if v.select]
+        if not verts:
+            self.report({'WARNING'}, '没有选中的顶点')
+            return {'CANCELLED'}
+        center_world = obj.matrix_world @ (sum((v.co for v in verts), Vector()) / len(verts))
+        cursor = context.scene.cursor
+        old_cursor = cursor.location.copy()
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            context.view_layer.objects.active = obj
+            cursor.location = center_world
+            bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        finally:
+            cursor.location = old_cursor
+            bpy.ops.object.mode_set(mode='EDIT')
+        return {'FINISHED'}
+# ────────────────────────────────
 # 面板类：UI 界面
 # ────────────────────────────────
 
+class EXPORT_OT_used_textures(bpy.types.Operator):
+    bl_idname = "export_texture.used_textures"
+    bl_label = "导出所有贴图"
+    bl_options = {'REGISTER', 'UNDO'}
+    directory: bpy.props.StringProperty(name="导出目录", subtype='DIR_PATH')
+    def execute(self, context):
+        if not self.directory:
+            self.report({'ERROR'}, "未选择导出目录")
+            return {'CANCELLED'}
+        os.makedirs(self.directory, exist_ok=True)
+        images = set()
+        for owner in list(bpy.data.materials) + list(bpy.data.worlds):
+            if getattr(owner, 'use_nodes', False) and owner.node_tree:
+                images.update(n.image for n in owner.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image)
+        count = 0
+        for image in images:
+            if not image.has_data: continue
+            ext = '.' + image.file_format.lower() if image.file_format and image.file_format != 'NONE' else '.png'
+            path = os.path.join(self.directory, re.sub(r'[^\w._-]', '_', image.name) + ext)
+            try:
+                if image.packed_file:
+                    with open(path, 'wb') as f: f.write(image.packed_file.data)
+                elif image.filepath_raw and os.path.exists(bpy.path.abspath(image.filepath_raw)):
+                    shutil.copy2(bpy.path.abspath(image.filepath_raw), path)
+                else: image.save_render(path)
+                count += 1
+            except Exception as exc: self.report({'WARNING'}, f"导出失败 {image.name}: {exc}")
+        self.report({'INFO'}, f"成功导出 {count} 张贴图")
+        return {'FINISHED'}
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 class VIEW3D_PT_batch_scene_tools(bpy.types.Panel):
     bl_label = "批量场景工具"
     bl_space_type = 'VIEW_3D'
@@ -253,12 +335,18 @@ class VIEW3D_PT_batch_scene_tools(bpy.types.Panel):
         col.label(text="重命名工具:")
         col.operator("object.rename_children_by_parent", icon='SORTALPHA')
         col.operator("object.rename_object_data_to_object_name", icon='SORTALPHA')
+        col.operator("object.replace_dots_in_names", icon='SORTALPHA')
 
         col.separator()
         col.label(text="原点与对齐:")
+        col.operator("object.origin_to_selected_vertices", icon='PIVOT_CURSOR')
         col.operator("object.origin_to_center_and_apply", icon='PIVOT_BOUNDBOX')
         col.operator("object.align_bottom_to_z0", icon='ALIGN_BOTTOM')
         col.operator("object.align_corner_to_xy0", icon='ALIGN_LEFT')
+
+        col.separator()
+        col.label(text="贴图工具:")
+        col.operator("export_texture.used_textures", icon='IMAGE_DATA')
 
 
 # ────────────────────────────────
@@ -266,8 +354,11 @@ class VIEW3D_PT_batch_scene_tools(bpy.types.Panel):
 # ────────────────────────────────
 
 classes = (
+    EXPORT_OT_used_textures,
     OBJECT_OT_delete_empties,
+    OBJECT_OT_replace_dots_in_names,
     OBJECT_OT_rename_object_data_to_object_name,
+    OBJECT_OT_origin_to_selected_vertices,
     OBJECT_OT_origin_to_center_and_apply,
     OBJECT_OT_align_bottom_to_z0,
     OBJECT_OT_align_corner_to_xy0,
@@ -291,3 +382,9 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
+
+
+
+
+
